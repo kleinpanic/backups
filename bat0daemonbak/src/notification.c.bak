@@ -1,0 +1,143 @@
+#include <gtk/gtk.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <unistd.h>
+#include <fcntl.h>
+#include "battery_monitor.h"
+
+#define LOG_FILE "/home/klein/codeWS/C/bat0daemon/docs/battery_monitor.log"
+
+void log_message(const char *message) {
+    FILE *log_file = fopen(LOG_FILE, "a");
+    if (log_file) {
+        fprintf(log_file, "%s\n", message);
+        fclose(log_file);
+    } else {
+        perror("Failed to open log file");
+    }
+}
+
+void activate_battery_saving_mode() {
+    log_message("Activating battery saving mode");
+    kill_processes("/home/klein/codeWS/C/bat0daemon/docs/procress_list.txt");
+    set_brightness(50);
+}
+
+void enter_sleep_mode() {
+    log_message("Entering sleep mode");
+    system("systemctl suspend");
+}
+
+void show_notification(const char *message, const char *title) {
+    log_message("Showing notification");
+    GtkWidget *dialog;
+    gtk_init(0, NULL);
+    dialog = gtk_message_dialog_new(NULL,
+                                    GTK_DIALOG_DESTROY_WITH_PARENT,
+                                    GTK_MESSAGE_INFO,
+                                    GTK_BUTTONS_NONE,
+                                    "%s", message);
+    gtk_dialog_add_button(GTK_DIALOG(dialog), "OK", GTK_RESPONSE_OK);
+    gtk_dialog_add_button(GTK_DIALOG(dialog), "Battery Saving Mode", GTK_RESPONSE_APPLY);
+    
+    if (g_strcmp0(title, "Critical Battery Warning") == 0) {
+        gtk_dialog_add_button(GTK_DIALOG(dialog), "Sleep", GTK_RESPONSE_CLOSE);
+    }
+    
+    gtk_window_set_title(GTK_WINDOW(dialog), title);
+
+    gint response = gtk_dialog_run(GTK_DIALOG(dialog));
+    if (response == GTK_RESPONSE_APPLY) {
+        activate_battery_saving_mode();
+    } else if (response == GTK_RESPONSE_CLOSE) {
+        enter_sleep_mode();
+    }
+
+    gtk_widget_destroy(dialog);
+    while (g_main_context_iteration(NULL, FALSE));
+}
+
+int get_battery_level() {
+    FILE *file;
+    int battery_level = -1;
+    
+    file = fopen("/sys/class/power_supply/BAT0/capacity", "r");
+    if (file == NULL) {
+        perror("Failed to open capacity file");
+        log_message("Failed to open capacity file");
+        return -1;
+    }
+    
+    if (fscanf(file, "%d", &battery_level) != 1) {
+        perror("Failed to read battery level");
+        log_message("Failed to read battery level");
+        fclose(file);
+        return -1;
+    }
+    
+    fclose(file);
+    
+    return battery_level;
+}
+
+void kill_processes(const char *filename) {
+    FILE *file = fopen(filename, "r");
+    if (file == NULL) {
+        perror("Failed to open process list file");
+        log_message("Failed to open process list file");
+        return;
+    }
+
+    char process_name[256];
+    while (fgets(process_name, sizeof(process_name), file)) {
+        process_name[strcspn(process_name, "\n")] = 0; // Remove newline character
+        if (strlen(process_name) > 0) {
+            char command[300];
+            snprintf(command, sizeof(command), "pkill %s", process_name);
+            log_message(command);  // Log the command being executed
+            system(command);
+        }
+    }
+
+    fclose(file);
+}
+
+void set_brightness(int brightness) {
+    const char *brightness_path = "/sys/class/backlight/intel_backlight/brightness";
+    const char *max_brightness_path = "/sys/class/backlight/intel_backlight/max_brightness";
+    int max_brightness = 100;
+    int new_brightness = 0;
+    char buffer[4];
+
+    int fd = open(max_brightness_path, O_RDONLY);
+    if (fd == -1) {
+        perror("Failed to open max brightness file");
+        log_message("Failed to open max brightness file");
+        return;
+    }
+
+    if (read(fd, buffer, sizeof(buffer)) != -1) {
+        max_brightness = atoi(buffer);
+    } else {
+        perror("Failed to read max brightness");
+        log_message("Failed to read max brightness");
+    }
+    close(fd);
+
+    new_brightness = max_brightness * brightness / 100;
+    fd = open(brightness_path, O_WRONLY);
+    if (fd == -1) {
+        perror("Failed to open brightness file");
+        log_message("Failed to open brightness file");
+        return;
+    }
+
+    snprintf(buffer, sizeof(buffer), "%d", new_brightness);
+    if (write(fd, buffer, strlen(buffer)) == -1) {
+        perror("Failed to write to brightness file");
+        log_message("Failed to write to brightness file");
+    }
+
+    close(fd);
+}

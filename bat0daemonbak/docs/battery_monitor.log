@@ -1,0 +1,4 @@
+Starting battery monitor script
+DISPLAY=:0
+XAUTHORITY=/home/klein/.Xauthority
+Failed to open log file: Permission denied

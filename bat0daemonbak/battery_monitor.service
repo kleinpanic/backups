@@ -1,0 +1,17 @@
+[Unit]
+Description=Battery Monitor Service
+PartOf=graphical.target
+After=graphical.target
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/battery_daemon.sh
+Restart=always
+Environment=DISPLAY=:0
+Environment=XAUTHORITY=%h/.Xauthority
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=graphical.target
+
